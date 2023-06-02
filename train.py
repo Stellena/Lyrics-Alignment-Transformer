@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 from torch.utils.data import DataLoader
+import matplotlib.pyplot as plt
 from dataset import ScoreDataset
 from model import Transformer
 from config import CFG
@@ -39,7 +40,7 @@ def train_loop(model, opt, loss_fn, dataloader):
 
     for batch in dataloader:
         X, y = batch
-        X, y = torch.tensor(X).to(device), torch.tensor(y).to(device)
+        X, y = X.to(device), y.to(device)
 
         # Now we shift the tgt by one so with the <SOS> we predict the token at pos 1
         y_input = y[:,:-1]
@@ -79,7 +80,7 @@ def validation_loop(model, loss_fn, dataloader):
     with torch.no_grad():
         for batch in dataloader:      
             X, y = batch     
-            X, y = torch.tensor(X, dtype=torch.long, device=device), torch.tensor(y, dtype=torch.long, device=device)
+            X, y = X.to(device), y.to(device)
 
             # Now we shift the tgt by one so with the <SOS> we predict the token at pos 1
             y_input = y[:,:-1]
@@ -102,10 +103,7 @@ def validation_loop(model, loss_fn, dataloader):
 
 def fit(model, opt, loss_fn, train_dataloader, val_dataloader, epochs, curr_epoch, loss_list):
 
-    # Used for plotting later on
-    train_loss_list, validation_loss_list = [], []
-    
-    print("Training and validating model")
+    print("Start of Training")
     for epoch in range(epochs):
         print("-"*25, f"Epoch {curr_epoch + epoch + 1}","-"*25)
         
@@ -122,11 +120,14 @@ def fit(model, opt, loss_fn, train_dataloader, val_dataloader, epochs, curr_epoc
             'loss': loss_list,
             }, cfg.save_checkpoint_dir)
         
+        print("Checkpoint saved")
         print(f"Training loss: {train_loss:.4f}")
         print(f"Validation loss: {validation_loss:.4f}")
         print()
+    
+    print("End of Training")
         
-    return train_loss_list, validation_loss_list
+    return loss_list
 
 
 args = parse_args()
@@ -156,4 +157,12 @@ val_dataloader = DataLoader(valset, batch_size=cfg.BATCH_SIZE, shuffle=False)
 
 
 if __name__ == '__main__':
-    train_loss_list, validation_loss_list = fit(model, opt, loss_fn, train_dataloader, val_dataloader, args.epoch, curr_epoch, loss_list)
+    loss_list = fit(model, opt, loss_fn, train_dataloader, val_dataloader, args.epoch, curr_epoch, loss_list)
+    
+    plt.title('Training and Validation Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.plot(loss_list[0], 'b', label='train')
+    plt.plot(loss_list[1], 'r', label='val')
+    plt.legend(loc='upper right')
+    plt.savefig("loss_graph.jpg", dpi=300)    # Save graph as a JPG image
