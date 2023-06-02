@@ -50,7 +50,7 @@ valset = ScoreDataset(cfg.input_val_dir, cfg.target_val_dir, [cfg.PAD, cfg.EOS, 
 idx = np.random.randint(0, len(valset) - 1)
 print(f"Example index: {idx}")
 
-sample, _ = valset[idx]
+sample, gt = valset[idx]
 print("Input")
 print_sequence(sample, cfg.EOS)
 
@@ -58,4 +58,7 @@ sample = torch.tensor(sample, dtype=torch.long, device=device).unsqueeze(0)
 result = predict(model, sample, max_length=cfg.MAXLEN, PAD=cfg.PAD, EOS=cfg.EOS)
 print("Prediction")
 print_sequence(result, cfg.EOS)
+
+print("Ground-truth")
+print_sequence(gt, cfg.EOS)
 
