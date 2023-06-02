@@ -7,7 +7,7 @@ class CFG:
         self.NUM_TOKENS = 755        # 토큰 종류 수
         self.dim_model = 64
         self.num_heads = 4
-        self.num_layers = 4,
+        self.num_layers = 4
         self.log_period = 500
         self.input_train_dir = "dataset/input_train_lyrics.npy"
         self.target_train_dir = "dataset/target_train_lyrics.npy"

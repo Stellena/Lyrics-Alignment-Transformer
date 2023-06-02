@@ -45,6 +45,9 @@ def print_sequence(seq, EOS):
         if token ==  EOS:
             print()
             return 
+    print()
+    return
+
 
 valset = ScoreDataset(cfg.input_val_dir, cfg.target_val_dir, [cfg.PAD, cfg.EOS, cfg.MAXLEN])
 idx = np.random.randint(0, len(valset) - 1)
