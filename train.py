@@ -13,10 +13,6 @@ import time
 
 cfg = CFG()
 
-PAD = 0
-EOS = 1
-
-
 def parse_args():
     parser = argparse.ArgumentParser(description="Lyrics Alignment Transformer")
     parser.add_argument(
@@ -66,7 +62,7 @@ def train_loop(model, opt, loss_fn, dataloader):
         datanum += cfg.BATCH_SIZE
         if datanum > current_cut:
             curr_time = time.time() - start_time
-            print("\t{:4d} samples trained. Elapsed time: {:6.2f} s".format(datanum, curr_time))
+            print("\t{:4d}/{:4d} samples trained. Elapsed time: {:6.2f} s".format(current_cut, cfg.BATCH_SIZE * len(dataloader), curr_time))
             current_cut += cfg.log_period
 
     return total_loss / len(dataloader)
@@ -133,7 +129,8 @@ def fit(model, opt, loss_fn, train_dataloader, val_dataloader, epochs, curr_epoc
 args = parse_args()
 device = "cuda" if torch.cuda.is_available() else "cpu"
 model = Transformer(
-    num_tokens=cfg.NUM_TOKENS, dim_model=8, num_heads=2, num_encoder_layers=3, num_decoder_layers=3, dropout_p=0.1
+    num_tokens=cfg.NUM_TOKENS, dim_model=cfg.dim_model, num_heads=cfg.num_heads, 
+    num_encoder_layers=cfg.num_layers, num_decoder_layers=cfg.num_layers, dropout_p=0.1
 ).to(device)
 opt = torch.optim.SGD(model.parameters(), lr=0.01)
 loss_fn = nn.CrossEntropyLoss()    
@@ -149,8 +146,8 @@ else:
     curr_epoch = 0
     loss_list = [[], []]    
     
-trainset = ScoreDataset(cfg.input_train_dir, cfg.target_train_dir, [PAD, EOS, cfg.MAXLEN])
-valset = ScoreDataset(cfg.input_val_dir, cfg.input_val_dir, [PAD, EOS, cfg.MAXLEN])
+trainset = ScoreDataset(cfg.input_train_dir, cfg.target_train_dir, [cfg.PAD, cfg.EOS, cfg.MAXLEN])
+valset = ScoreDataset(cfg.input_val_dir, cfg.target_val_dir, [cfg.PAD, cfg.EOS, cfg.MAXLEN])
 
 train_dataloader = DataLoader(trainset, batch_size=cfg.BATCH_SIZE, shuffle=False)
 val_dataloader = DataLoader(valset, batch_size=cfg.BATCH_SIZE, shuffle=False)
@@ -158,11 +155,12 @@ val_dataloader = DataLoader(valset, batch_size=cfg.BATCH_SIZE, shuffle=False)
 
 if __name__ == '__main__':
     loss_list = fit(model, opt, loss_fn, train_dataloader, val_dataloader, args.epoch, curr_epoch, loss_list)
-    
+    epoch_list = [i + 1 for i in range(len(loss_list[0]))]
+
     plt.title('Training and Validation Loss')
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
-    plt.plot(loss_list[0], 'b', label='train')
-    plt.plot(loss_list[1], 'r', label='val')
+    plt.plot(epoch_list, loss_list[0], 'b', label='train')
+    plt.plot(epoch_list, loss_list[1], 'r', label='val')
     plt.legend(loc='upper right')
     plt.savefig("loss_graph.jpg", dpi=300)    # Save graph as a JPG image
