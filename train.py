@@ -5,6 +5,27 @@ import numpy as np
 from torch.utils.data import DataLoader
 from dataset import ScoreDataset
 from model import Transformer
+from config import CFG
+import argparse
+import time
+
+
+cfg = CFG()
+
+PAD = 0
+EOS = 1
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Lyrics Alignment Transformer")
+    parser.add_argument(
+        "--ckpt_dir", type=str, default=None, help="directory of checkpoint file"
+    )
+    parser.add_argument(
+        "--epoch", type=int, default=5, help="number of epochs, with default 5"
+    )
+    args = parser.parse_args()
+    return args
 
 
 def train_loop(model, opt, loss_fn, dataloader):
@@ -13,22 +34,11 @@ def train_loop(model, opt, loss_fn, dataloader):
     total_loss = 0
     
     datanum = 0
-    current_cut = 500
+    current_cut = cfg.log_period
+    start_time = time.time()
 
     for batch in dataloader:
         X, y = batch
-
-        flag = False
-        for sample in X:
-            for token in sample:
-                assert token >= 0
-
-        #X, y = batch[:, 0], batch[:, 1]     # 각각 src, tgt. Shape: (batch_size, max_seq_len)
-        #pad = np.zeros((MAXLEN - X.shape[0]), dtype=X.dtype)
-        #X = np.concatenate((X, pad)).reshape((1, -1))
-        #pad = np.zeros((MAXLEN - y.shape[0]), dtype=y.dtype)
-        #y = np.concatenate((y, pad)).reshape((1, -1))
-
         X, y = torch.tensor(X).to(device), torch.tensor(y).to(device)
 
         # Now we shift the tgt by one so with the <SOS> we predict the token at pos 1
@@ -52,31 +62,23 @@ def train_loop(model, opt, loss_fn, dataloader):
     
         total_loss += loss.detach().item()
 
-        datanum += BATCH_SIZE
+        datanum += cfg.BATCH_SIZE
         if datanum > current_cut:
-            print("\t{} samples trained".format(current_cut))
-            current_cut += 500
+            curr_time = time.time() - start_time
+            print("\t{:4d} samples trained. Elapsed time: {:6.2f} s".format(datanum, curr_time))
+            current_cut += cfg.log_period
 
     return total_loss / len(dataloader)
 
 
 def validation_loop(model, loss_fn, dataloader):
-    """
-    Method from "A detailed guide to Pytorch's nn.Transformer() module.", by
-    Daniel Melchor: https://medium.com/@danielmelchor/a-detailed-guide-to-pytorchs-nn-transformer-module-c80afbc9ffb1
-    """
-    
+
     model.eval()
     total_loss = 0
     
     with torch.no_grad():
         for batch in dataloader:      
-            X, y = batch
-            #pad = np.zeros((MAXLEN - X.shape[0]), dtype=X.dtype)
-            #X = np.concatenate((X, pad)).unsqueeze(0)
-            #pad = np.zeros((MAXLEN - y.shape[0]), dtype=y.dtype)
-            #y = np.concatenate((y, pad)).unsqueeze(0)            
-            
+            X, y = batch     
             X, y = torch.tensor(X, dtype=torch.long, device=device), torch.tensor(y, dtype=torch.long, device=device)
 
             # Now we shift the tgt by one so with the <SOS> we predict the token at pos 1
@@ -98,24 +100,27 @@ def validation_loop(model, loss_fn, dataloader):
     return total_loss / len(dataloader)
 
 
-def fit(model, opt, loss_fn, train_dataloader, val_dataloader, epochs):
-    """
-    Method from "A detailed guide to Pytorch's nn.Transformer() module.", by
-    Daniel Melchor: https://medium.com/@danielmelchor/a-detailed-guide-to-pytorchs-nn-transformer-module-c80afbc9ffb1
-    """
-    
+def fit(model, opt, loss_fn, train_dataloader, val_dataloader, epochs, curr_epoch, loss_list):
+
     # Used for plotting later on
     train_loss_list, validation_loss_list = [], []
     
     print("Training and validating model")
     for epoch in range(epochs):
-        print("-"*25, f"Epoch {epoch + 1}","-"*25)
+        print("-"*25, f"Epoch {curr_epoch + epoch + 1}","-"*25)
         
         train_loss = train_loop(model, opt, loss_fn, train_dataloader)      # 1 epoch
-        train_loss_list += [train_loss]
+        loss_list[0].append(train_loss)
         
         validation_loss = validation_loop(model, loss_fn, val_dataloader)
-        validation_loss_list += [validation_loss]
+        loss_list[1].append(validation_loss)
+        
+        torch.save({
+            'epoch': curr_epoch + epoch + 1,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': opt.state_dict(),
+            'loss': loss_list,
+            }, cfg.save_checkpoint_dir)
         
         print(f"Training loss: {train_loss:.4f}")
         print(f"Validation loss: {validation_loss:.4f}")
@@ -124,27 +129,31 @@ def fit(model, opt, loss_fn, train_dataloader, val_dataloader, epochs):
     return train_loss_list, validation_loss_list
 
 
-PAD = 0
-EOS = 1
-MAXLEN = 2048
-BATCH_SIZE = 8          # 너무 크게 잡으면 램용량 초과 뜰 수 있음.
-NUM_TOKENS = 755        # 토큰 종류 수
-EPOCHS = 5
-
-
+args = parse_args()
 device = "cuda" if torch.cuda.is_available() else "cpu"
 model = Transformer(
-    num_tokens=NUM_TOKENS, dim_model=8, num_heads=2, num_encoder_layers=3, num_decoder_layers=3, dropout_p=0.1
+    num_tokens=cfg.NUM_TOKENS, dim_model=8, num_heads=2, num_encoder_layers=3, num_decoder_layers=3, dropout_p=0.1
 ).to(device)
 opt = torch.optim.SGD(model.parameters(), lr=0.01)
 loss_fn = nn.CrossEntropyLoss()    
 
+# Load checkpoint
+if args.ckpt_dir:
+    checkpoint = torch.load(args.ckpt_dir)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    opt.load_state_dict(checkpoint['optimizer_state_dict'])
+    curr_epoch = checkpoint['epoch']
+    loss_list = checkpoint['loss']
+else:
+    curr_epoch = 0
+    loss_list = [[], []]    
+    
+trainset = ScoreDataset(cfg.input_train_dir, cfg.target_train_dir, [PAD, EOS, cfg.MAXLEN])
+valset = ScoreDataset(cfg.input_val_dir, cfg.input_val_dir, [PAD, EOS, cfg.MAXLEN])
 
-trainset = ScoreDataset("input_train_lyrics.npy", "target_train_lyrics.npy", [PAD, EOS, MAXLEN])
-valset = ScoreDataset("input_val_lyrics.npy", "target_val_lyrics.npy", [PAD, EOS, MAXLEN])
-
-train_dataloader = DataLoader(trainset, batch_size=BATCH_SIZE, shuffle=False)
-val_dataloader = DataLoader(valset, batch_size=BATCH_SIZE, shuffle=False)
+train_dataloader = DataLoader(trainset, batch_size=cfg.BATCH_SIZE, shuffle=False)
+val_dataloader = DataLoader(valset, batch_size=cfg.BATCH_SIZE, shuffle=False)
 
 
-train_loss_list, validation_loss_list = fit(model, opt, loss_fn, train_dataloader, val_dataloader, EPOCHS)
+if __name__ == '__main__':
+    train_loss_list, validation_loss_list = fit(model, opt, loss_fn, train_dataloader, val_dataloader, args.epoch, curr_epoch, loss_list)
